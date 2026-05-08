@@ -1,0 +1,193 @@
+type: collection.insomnia.rest/5.0
+schema_version: "5.1"
+name: Hubrl Backend
+meta:
+  id: wrk_12ca7e5911c84a1091bd53de3b099331
+  created: 1778257521876
+  modified: 1778259000000
+  description: Endpoints v1 de autenticacao e usuarios
+collection:
+  - name: Auth - Register
+    meta:
+      id: req_5f9b7d0d30f445cb8d6589f4b38fa3d1
+      created: 1778259000001
+      modified: 1778259000001
+      isPrivate: false
+      description: Cria conta local com email e senha
+      sortKey: -1778259000001
+    method: POST
+    url: "{{ _.base_url }}/users/register"
+    headers:
+      - name: Content-Type
+        value: application/json
+        description: ""
+        disabled: false
+      - name: User-Agent
+        value: insomnia/12.5.0
+        description: ""
+        disabled: false
+    body:
+      mimeType: application/json
+      text: |-
+        {
+          "name": "Kevin",
+          "email": "kevin@example.com",
+          "password": "123456"
+        }
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+  - name: Auth - Login
+    meta:
+      id: req_9c5a95f9d95842f6b2ea75fbec5f8f64
+      created: 1778259000002
+      modified: 1778259000002
+      isPrivate: false
+      description: Login local por email e senha
+      sortKey: -1778259000002
+    method: POST
+    url: "{{ _.base_url }}/users/login"
+    headers:
+      - name: Content-Type
+        value: application/json
+        description: ""
+        disabled: false
+      - name: User-Agent
+        value: insomnia/12.5.0
+        description: ""
+        disabled: false
+    body:
+      mimeType: application/json
+      text: |-
+        {
+          "email": "kevin@example.com",
+          "password": "123456"
+        }
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+  - name: Auth - Login Google
+    meta:
+      id: req_95e532315e9c40a4a97f11194d9fca8b
+      created: 1778259000003
+      modified: 1778259000003
+      isPrivate: false
+      description: Login social com Google
+      sortKey: -1778259000003
+    method: POST
+    url: "{{ _.base_url }}/users/login/google"
+    headers:
+      - name: Content-Type
+        value: application/json
+        description: ""
+        disabled: false
+      - name: User-Agent
+        value: insomnia/12.5.0
+        description: ""
+        disabled: false
+    body:
+      mimeType: application/json
+      text: |-
+        {
+          "googleToken": "google_token_exemplo",
+          "email": "kevin@example.com",
+          "name": "Kevin"
+        }
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+  - name: Users - Me
+    meta:
+      id: req_4d8f7bd5f2e341f2b9fd9fd35093f8df
+      created: 1778259000004
+      modified: 1778259000004
+      isPrivate: false
+      description: Retorna payload autenticado do JWT
+      sortKey: -1778259000004
+    method: GET
+    url: "{{ _.base_url }}/users/me"
+    headers:
+      - name: Authorization
+        value: Bearer {{ _.jwt_token }}
+        description: ""
+        disabled: false
+      - name: User-Agent
+        value: insomnia/12.5.0
+        description: ""
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+  - name: Users - Update Me
+    meta:
+      id: req_2d9d51e3f5e946a4af34cfaf6ab80811
+      created: 1778259000005
+      modified: 1778259000005
+      isPrivate: false
+      description: Atualiza dados basicos do usuario autenticado
+      sortKey: -1778259000005
+    method: PATCH
+    url: "{{ _.base_url }}/users/me"
+    headers:
+      - name: Content-Type
+        value: application/json
+        description: ""
+        disabled: false
+      - name: Authorization
+        value: Bearer {{ _.jwt_token }}
+        description: ""
+        disabled: false
+      - name: User-Agent
+        value: insomnia/12.5.0
+        description: ""
+        disabled: false
+    body:
+      mimeType: application/json
+      text: |-
+        {
+          "name": "Kevin Atualizado"
+        }
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+cookieJar:
+  name: Default Jar
+  meta:
+    id: jar_e013cb4828192ea779ea3551e8de8464876fb6e4
+    created: 1778257521878
+    modified: 1778259000000
+environments:
+  name: Base Environment
+  meta:
+    id: env_e013cb4828192ea779ea3551e8de8464876fb6e4
+    created: 1778257521877
+    modified: 1778259000000
+    isPrivate: false
+  data:
+    base_url: http://localhost:3000/v1
+    jwt_token: cole_o_access_token_aqui
