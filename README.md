@@ -75,6 +75,23 @@ Foi adicionada integracao com Mongoose para persistir usuarios no MongoDB.
 - Configure `MONGODB_URI` (veja `.env.example`)
 - Instale dependencias com `npm install`
 
+## Docker
+
+Backend e MongoDB podem subir via Docker Compose:
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+Comando para derrubar os containers:
+
+```bash
+docker compose down
+```
+
+O backend sobe em `http://localhost:3000` e o MongoDB em `localhost:27017`.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.

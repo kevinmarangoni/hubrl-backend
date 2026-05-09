@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+.gitignore
+.env
+coverage
+*.log
+README.md
+Insomnia_2026-05-08.yaml
