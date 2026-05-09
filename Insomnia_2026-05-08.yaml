@@ -175,6 +175,82 @@ collection:
         send: true
         store: true
       rebuildPath: true
+  - name: Hubrls - Create
+    meta:
+      id: req_3d8e196ab5e742468c6f50f8ebd0ac48
+      created: 1778259000007
+      modified: 1778259000007
+      isPrivate: false
+      description: Cria um hubrl para o usuario autenticado
+      sortKey: -1778259000007
+    method: POST
+    url: "{{ _.base_url }}/hubrls"
+    headers:
+      - name: Content-Type
+        value: application/json
+        description: ""
+        disabled: false
+      - name: Authorization
+        value: Bearer {{ _.jwt_token }}
+        description: ""
+        disabled: false
+    body:
+      mimeType: application/json
+      text: |-
+        {
+          "title": "Meu Hubrl",
+          "profileImageUrl": "https://exemplo.com/avatar.jpg",
+          "backgroundColor": "#0f172a",
+          "backgroundImageUrl": "",
+          "backgroundGradientCss": "",
+          "backgroundImageLayerOn": false,
+          "backgroundImageLayerOpacity": 100,
+          "backgroundSolidLayerOn": true,
+          "backgroundSolidLayerOpacity": 100,
+          "backgroundGradientLayerOn": false,
+          "backgroundGradientLayerOpacity": 100,
+          "links": [
+            {
+              "avatarImageUrl": "",
+              "backgroundColor": "#111827",
+              "backgroundImageUrl": "",
+              "text": "Meu portfolio",
+              "url": "https://meusite.com",
+              "isAdultOnly": false
+            }
+          ]
+        }
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+  - name: Hubrls - Mine
+    meta:
+      id: req_51763ec4f3e648e9a4238bf4f3526d38
+      created: 1778259000008
+      modified: 1778259000008
+      isPrivate: false
+      description: Lista hubrls do usuario autenticado
+      sortKey: -1778259000008
+    method: GET
+    url: "{{ _.base_url }}/hubrls/mine"
+    headers:
+      - name: Authorization
+        value: Bearer {{ _.jwt_token }}
+        description: ""
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
 cookieJar:
   name: Default Jar
   meta:
