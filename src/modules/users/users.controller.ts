@@ -10,12 +10,12 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Request } from 'express';
+import type { Request } from 'express';
 import { JwtAuthGuard } from '../../common/auth/jwt-auth.guard';
 import { JwtPayload } from '../../common/auth/jwt.service';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { GoogleLoginDto } from './dto/google-login.dto';
-import { LoginDto } from './dto/login.dto';
+import { DiscordLoginDto } from './dto/discord-login.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UsersService } from './users.service';
 
@@ -30,14 +30,14 @@ export class UsersController {
     return this.usersService.createAccount(body);
   }
 
-  @Post('login')
-  login(@Body() body: LoginDto) {
-    return this.usersService.login(body);
-  }
-
   @Post('login/google')
   loginWithGoogle(@Body() body: GoogleLoginDto) {
     return this.usersService.loginWithGoogle(body);
+  }
+
+  @Post('login/discord')
+  loginWithDiscord(@Body() body: DiscordLoginDto) {
+    return this.usersService.loginWithDiscord(body);
   }
 
   @UseGuards(JwtAuthGuard)

@@ -59,6 +59,13 @@ export class HubrlLink {
 
   @Prop({ required: true, default: false })
   isAdultOnly: boolean;
+
+  /** Identificador estável para métricas de clique (UUID). */
+  @Prop({ type: String, default: null, trim: true })
+  linkId?: string | null;
+
+  @Prop({ type: Number, default: 0 })
+  clickCount?: number;
 }
 
 const HubrlLinkSchema = SchemaFactory.createForClass(HubrlLink);
@@ -143,6 +150,16 @@ export class Hubrl {
 
   @Prop({ type: [HubrlLinkSchema], default: [] })
   links: HubrlLink[];
+
+  @Prop({ type: Number, default: 0 })
+  viewCount?: number;
+
+  /**
+   * Contagem de visualizações por código ISO do país (ex.: BR, PT).
+   * Atualizado de forma best-effort a partir do IP ou cabeçalhos da edge.
+   */
+  @Prop({ type: Object, default: {} })
+  viewsByCountry?: Record<string, number>;
 }
 
 export const HubrlSchema = SchemaFactory.createForClass(Hubrl);

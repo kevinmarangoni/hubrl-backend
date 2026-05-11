@@ -1,7 +1,9 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
   Patch,
   Post,
@@ -11,7 +13,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Request } from 'express';
+import type { Request } from 'express';
 import { JwtAuthGuard } from '../../common/auth/jwt-auth.guard';
 import { JwtPayload } from '../../common/auth/jwt.service';
 import { CreateHubrlDto } from './dto/create-hubrl.dto';
@@ -53,6 +55,26 @@ export class HubrlsController {
   @UseGuards(JwtAuthGuard)
   listMine(@Req() request: AuthenticatedRequest) {
     return this.hubrlsService.listMine(request.user.sub);
+  }
+
+  @Post(':hubrlId/analytics/view')
+  @HttpCode(204)
+  async recordView(@Param('hubrlId') hubrlId: string, @Req() req: Request) {
+    await this.hubrlsService.recordView(hubrlId, req);
+  }
+
+  @Post(':hubrlId/analytics/click')
+  @HttpCode(204)
+  async recordLinkClick(
+    @Param('hubrlId') hubrlId: string,
+    @Body() body: { linkId?: string },
+    @Req() req: Request,
+  ) {
+    const linkId = body?.linkId?.trim();
+    if (!linkId) {
+      throw new BadRequestException('linkId e obrigatorio');
+    }
+    await this.hubrlsService.recordLinkClick(hubrlId, linkId, req);
   }
 
   @Get(':hubrlId')

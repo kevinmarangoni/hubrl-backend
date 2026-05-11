@@ -15,6 +15,8 @@ export class CreateHubrlLinkDto {
   borderRadiusBottomLeftPx?: number;
   /** Legado: raio unico se os quatro cantos forem omitidos. */
   borderRadiusPx?: number;
+  /** Preservado entre edições para métricas de clique. */
+  linkId?: string;
   text: string;
   url: string;
   isAdultOnly?: boolean;

@@ -1,10 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import type { Request } from 'express';
 import { Model, Types } from 'mongoose';
 import { randomUUID } from 'crypto';
 import { CloudinaryService } from '../uploads/cloudinary.service';
 import { CreateHubrlDto } from './dto/create-hubrl.dto';
 import { Hubrl, HubrlDocument } from './schemas/hubrl.schema';
+import { resolveClientIp, resolveCountryCode } from './client-geo';
 
 function sanitizeBackgroundGradientCss(raw: string | undefined | null): string | null {
   const s = raw?.trim();
@@ -120,6 +122,8 @@ export class HubrlsService {
           text: link.text?.trim(),
           url: link.url?.trim(),
           isAdultOnly: Boolean(link.isAdultOnly),
+          linkId: randomUUID(),
+          clickCount: 0,
         };
       }) ?? [];
 
@@ -166,10 +170,12 @@ export class HubrlsService {
           ? true
           : Boolean(input.cardBackgroundGradientLayerOn),
       cardBackgroundGradientLayerOpacity: normalizeLayerOpacity(input.cardBackgroundGradientLayerOpacity),
+      viewCount: 0,
+      viewsByCountry: {},
       links,
     });
 
-    return this.toResponse(hubrl);
+    return this.toOwnerResponse(hubrl);
   }
 
   async listMine(ownerId: string) {
@@ -177,7 +183,7 @@ export class HubrlsService {
       .find({ ownerId: new Types.ObjectId(ownerId) })
       .sort({ createdAt: -1 });
 
-    return hubrls.map((hubrl) => this.toResponse(hubrl));
+    return hubrls.map((hubrl) => this.toOwnerResponse(hubrl));
   }
 
   async getByHubrlId(hubrlId: string) {
@@ -193,7 +199,15 @@ export class HubrlsService {
       throw new NotFoundException('Hubrl nao encontrado');
     }
 
-    return this.toResponse(hubrl);
+    await this.ensureLinkIdsPersisted(hubrl);
+    const refreshed =
+      (await this.hubrlModel.findOne({ hubrlId: hubrl.hubrlId })) ||
+      (await this.hubrlModel.findById(hubrl._id));
+    if (!refreshed) {
+      throw new NotFoundException('Hubrl nao encontrado');
+    }
+
+    return this.toPublicResponse(refreshed);
   }
 
   async updateByHubrlId(ownerId: string, hubrlId: string, input: CreateHubrlDto) {
@@ -207,9 +221,49 @@ export class HubrlsService {
       throw new BadRequestException('Titulo do hubrl e obrigatorio');
     }
 
+    const rawHandle = input.handle?.trim() ?? '';
+    const handleNormalized = rawHandle.replace(/^@+/, '').trim() || null;
+
+    const descriptionRaw = input.description?.trim() ?? '';
+    const descriptionNormalized =
+      descriptionRaw.length > 2000 ? descriptionRaw.slice(0, 2000) : descriptionRaw;
+    const descriptionFinal = descriptionNormalized.length ? descriptionNormalized : null;
+
+    const query =
+      Types.ObjectId.isValid(normalizedHubrlId)
+        ? {
+            ownerId: new Types.ObjectId(ownerId),
+            $or: [{ hubrlId: normalizedHubrlId }, { _id: new Types.ObjectId(normalizedHubrlId) }],
+          }
+        : { ownerId: new Types.ObjectId(ownerId), hubrlId: normalizedHubrlId };
+
+    let existing = await this.hubrlModel.findOne(query);
+    if (!existing) {
+      throw new NotFoundException('Hubrl nao encontrado');
+    }
+
+    await this.ensureLinkIdsPersisted(existing);
+    existing = (await this.hubrlModel.findOne(query))!;
+    if (!existing) {
+      throw new NotFoundException('Hubrl nao encontrado');
+    }
+
+    const existingByLinkId = new Map<string, { clickCount: number }>();
+    for (const l of existing.links) {
+      const doc = l as { linkId?: string; clickCount?: number };
+      const id = doc.linkId?.trim();
+      if (id) {
+        existingByLinkId.set(id, { clickCount: typeof doc.clickCount === 'number' ? doc.clickCount : 0 });
+      }
+    }
+
     const links =
       input.links?.map((link) => {
         const fb = legacyUniformRadiusFromLink(link);
+        const incomingId = link.linkId?.trim();
+        const prev = incomingId ? existingByLinkId.get(incomingId) : undefined;
+        const linkId = incomingId && prev ? incomingId : randomUUID();
+        const clickCount = prev ? prev.clickCount : 0;
         return {
           avatarImageUrl: link.avatarImageUrl?.trim() || null,
           backgroundColor: link.backgroundColor?.trim() || null,
@@ -230,6 +284,8 @@ export class HubrlsService {
           text: link.text?.trim(),
           url: link.url?.trim(),
           isAdultOnly: Boolean(link.isAdultOnly),
+          linkId,
+          clickCount,
         };
       }) ?? [];
 
@@ -238,22 +294,6 @@ export class HubrlsService {
         throw new BadRequestException('Cada link precisa de texto e url');
       }
     }
-
-    const rawHandle = input.handle?.trim() ?? '';
-    const handleNormalized = rawHandle.replace(/^@+/, '').trim() || null;
-
-    const descriptionRaw = input.description?.trim() ?? '';
-    const descriptionNormalized =
-      descriptionRaw.length > 2000 ? descriptionRaw.slice(0, 2000) : descriptionRaw;
-    const descriptionFinal = descriptionNormalized.length ? descriptionNormalized : null;
-
-    const query =
-      Types.ObjectId.isValid(normalizedHubrlId)
-        ? {
-            ownerId: new Types.ObjectId(ownerId),
-            $or: [{ hubrlId: normalizedHubrlId }, { _id: new Types.ObjectId(normalizedHubrlId) }],
-          }
-        : { ownerId: new Types.ObjectId(ownerId), hubrlId: normalizedHubrlId };
 
     const hubrl = await this.hubrlModel.findOneAndUpdate(
       query,
@@ -295,7 +335,87 @@ export class HubrlsService {
       throw new NotFoundException('Hubrl nao encontrado');
     }
 
-    return this.toResponse(hubrl);
+    return this.toOwnerResponse(hubrl);
+  }
+
+  async recordView(hubrlId: string, req: Request): Promise<void> {
+    const normalized = hubrlId?.trim();
+    if (!normalized) {
+      throw new BadRequestException('hubrlId e obrigatorio');
+    }
+
+    const hubrl = await this.findHubrlDocumentByPublicOrLegacyId(normalized);
+    if (!hubrl) {
+      throw new NotFoundException('Hubrl nao encontrado');
+    }
+
+    await this.ensureLinkIdsPersisted(hubrl);
+
+    const ip = resolveClientIp(req);
+    const country = resolveCountryCode(req, ip);
+    const inc: Record<string, number> = { viewCount: 1 };
+    if (country) {
+      inc[`viewsByCountry.${country}`] = 1;
+    }
+
+    await this.hubrlModel.updateOne({ _id: hubrl._id }, { $inc: inc });
+  }
+
+  async recordLinkClick(hubrlId: string, linkId: string, _req: Request): Promise<void> {
+    const normalizedHubrl = hubrlId?.trim();
+    const normalizedLink = linkId?.trim();
+    if (!normalizedHubrl || !normalizedLink) {
+      throw new BadRequestException('hubrlId e linkId sao obrigatorios');
+    }
+
+    const hubrl = await this.findHubrlDocumentByPublicOrLegacyId(normalizedHubrl);
+    if (!hubrl) {
+      throw new NotFoundException('Hubrl nao encontrado');
+    }
+
+    await this.ensureLinkIdsPersisted(hubrl);
+
+    const result = await this.hubrlModel.updateOne(
+      { _id: hubrl._id, 'links.linkId': normalizedLink },
+      { $inc: { 'links.$.clickCount': 1 } },
+    );
+
+    if (result.matchedCount === 0) {
+      throw new NotFoundException('Link nao encontrado');
+    }
+  }
+
+  private async findHubrlDocumentByPublicOrLegacyId(hubrlId: string): Promise<HubrlDocument | null> {
+    const normalized = hubrlId.trim();
+    return (
+      (await this.hubrlModel.findOne({ hubrlId: normalized })) ||
+      (Types.ObjectId.isValid(normalized) ? await this.hubrlModel.findById(new Types.ObjectId(normalized)) : null)
+    );
+  }
+
+  private async ensureLinkIdsPersisted(hubrl: HubrlDocument): Promise<void> {
+    const linksRaw = hubrl.links as unknown as Array<Record<string, unknown>>;
+    const needs = linksRaw.some((l) => !l?.linkId || typeof l.linkId !== 'string' || !String(l.linkId).trim());
+    if (!needs) {
+      return;
+    }
+
+    const migrated = linksRaw.map((l) => {
+      const o = JSON.parse(JSON.stringify(l)) as Record<string, unknown>;
+      delete o._id;
+      return {
+        ...o,
+        linkId:
+          typeof o.linkId === 'string' && o.linkId.trim().length > 0 ? o.linkId.trim() : randomUUID(),
+        clickCount:
+          typeof o.clickCount === 'number' && Number.isFinite(o.clickCount)
+            ? Math.max(0, Math.floor(o.clickCount as number))
+            : 0,
+      };
+    });
+
+    await this.hubrlModel.updateOne({ _id: hubrl._id }, { $set: { links: migrated } });
+    hubrl.set({ links: migrated } as never);
   }
 
   async uploadImageAsset(ownerId: string, file?: Express.Multer.File) {
@@ -321,7 +441,72 @@ export class HubrlsService {
     return { url: uploadResult.secure_url };
   }
 
-  private toResponse(hubrl: HubrlDocument) {
+  private normalizeViewsByCountry(hubrl: HubrlDocument): Record<string, number> {
+    const raw = hubrl.viewsByCountry as unknown;
+    if (raw instanceof Map) {
+      return Object.fromEntries(raw) as Record<string, number>;
+    }
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      return { ...(raw as Record<string, number>) };
+    }
+    return {};
+  }
+
+  private mapLinkToOwnerJson(link: {
+    avatarImageUrl?: string | null;
+    backgroundColor?: string | null;
+    backgroundImageUrl?: string | null;
+    backgroundGradientCss?: string | null;
+    backgroundImageLayerOn?: boolean | null;
+    backgroundImageLayerOpacity?: number | null;
+    backgroundSolidLayerOn?: boolean | null;
+    backgroundSolidLayerOpacity?: number | null;
+    backgroundGradientLayerOn?: boolean | null;
+    backgroundGradientLayerOpacity?: number | null;
+    borderRadiusTopLeftPx?: number | null;
+    borderRadiusTopRightPx?: number | null;
+    borderRadiusBottomRightPx?: number | null;
+    borderRadiusBottomLeftPx?: number | null;
+    linkId?: string | null;
+    clickCount?: number | null;
+    text: string;
+    url: string;
+    isAdultOnly: boolean;
+  }) {
+    const fb = legacyUniformRadiusFromLink(link);
+    return {
+      avatarImageUrl: link.avatarImageUrl ?? null,
+      backgroundColor: link.backgroundColor ?? null,
+      backgroundImageUrl: link.backgroundImageUrl ?? null,
+      backgroundGradientCss: link.backgroundGradientCss ?? null,
+      backgroundImageLayerOn:
+        link.backgroundImageLayerOn !== undefined && link.backgroundImageLayerOn !== null
+          ? Boolean(link.backgroundImageLayerOn)
+          : Boolean(link.backgroundImageUrl),
+      backgroundImageLayerOpacity: normalizeLayerOpacity(link.backgroundImageLayerOpacity ?? 100),
+      backgroundSolidLayerOn:
+        link.backgroundSolidLayerOn !== undefined && link.backgroundSolidLayerOn !== null
+          ? Boolean(link.backgroundSolidLayerOn)
+          : Boolean(link.backgroundColor),
+      backgroundSolidLayerOpacity: normalizeLayerOpacity(link.backgroundSolidLayerOpacity ?? 100),
+      backgroundGradientLayerOn:
+        link.backgroundGradientLayerOn !== undefined && link.backgroundGradientLayerOn !== null
+          ? Boolean(link.backgroundGradientLayerOn)
+          : Boolean(link.backgroundGradientCss),
+      backgroundGradientLayerOpacity: normalizeLayerOpacity(link.backgroundGradientLayerOpacity ?? 100),
+      borderRadiusTopLeftPx: normalizeLinkCornerRadiusPx(link.borderRadiusTopLeftPx, fb),
+      borderRadiusTopRightPx: normalizeLinkCornerRadiusPx(link.borderRadiusTopRightPx, fb),
+      borderRadiusBottomRightPx: normalizeLinkCornerRadiusPx(link.borderRadiusBottomRightPx, fb),
+      borderRadiusBottomLeftPx: normalizeLinkCornerRadiusPx(link.borderRadiusBottomLeftPx, fb),
+      text: link.text,
+      url: link.url,
+      isAdultOnly: link.isAdultOnly,
+      linkId: link.linkId?.trim() || null,
+      clickCount: typeof link.clickCount === 'number' && Number.isFinite(link.clickCount) ? link.clickCount : 0,
+    };
+  }
+
+  private toOwnerResponse(hubrl: HubrlDocument) {
     return {
       id: hubrl._id.toString(),
       hubrlId: hubrl.hubrlId?.trim() || hubrl._id.toString(),
@@ -378,36 +563,20 @@ export class HubrlsService {
       cardBackgroundGradientLayerOpacity: normalizeLayerOpacity(
         hubrl.cardBackgroundGradientLayerOpacity ?? hubrl.backgroundGradientLayerOpacity ?? 100,
       ),
-      links: hubrl.links.map((link) => {
-        const fb = legacyUniformRadiusFromLink(link);
-        return {
-          avatarImageUrl: link.avatarImageUrl ?? null,
-          backgroundColor: link.backgroundColor ?? null,
-          backgroundImageUrl: link.backgroundImageUrl ?? null,
-          backgroundGradientCss: link.backgroundGradientCss ?? null,
-          backgroundImageLayerOn:
-            link.backgroundImageLayerOn !== undefined && link.backgroundImageLayerOn !== null
-              ? Boolean(link.backgroundImageLayerOn)
-              : Boolean(link.backgroundImageUrl),
-          backgroundImageLayerOpacity: normalizeLayerOpacity(link.backgroundImageLayerOpacity ?? 100),
-          backgroundSolidLayerOn:
-            link.backgroundSolidLayerOn !== undefined && link.backgroundSolidLayerOn !== null
-              ? Boolean(link.backgroundSolidLayerOn)
-              : Boolean(link.backgroundColor),
-          backgroundSolidLayerOpacity: normalizeLayerOpacity(link.backgroundSolidLayerOpacity ?? 100),
-          backgroundGradientLayerOn:
-            link.backgroundGradientLayerOn !== undefined && link.backgroundGradientLayerOn !== null
-              ? Boolean(link.backgroundGradientLayerOn)
-              : Boolean(link.backgroundGradientCss),
-          backgroundGradientLayerOpacity: normalizeLayerOpacity(link.backgroundGradientLayerOpacity ?? 100),
-          borderRadiusTopLeftPx: normalizeLinkCornerRadiusPx(link.borderRadiusTopLeftPx, fb),
-          borderRadiusTopRightPx: normalizeLinkCornerRadiusPx(link.borderRadiusTopRightPx, fb),
-          borderRadiusBottomRightPx: normalizeLinkCornerRadiusPx(link.borderRadiusBottomRightPx, fb),
-          borderRadiusBottomLeftPx: normalizeLinkCornerRadiusPx(link.borderRadiusBottomLeftPx, fb),
-          text: link.text,
-          url: link.url,
-          isAdultOnly: link.isAdultOnly,
-        };
+      viewCount: hubrl.viewCount ?? 0,
+      viewsByCountry: this.normalizeViewsByCountry(hubrl),
+      links: hubrl.links.map((link) => this.mapLinkToOwnerJson(link as never)),
+    };
+  }
+
+  private toPublicResponse(hubrl: HubrlDocument) {
+    const owner = this.toOwnerResponse(hubrl);
+    const { ownerId: _o, viewCount: _v, viewsByCountry: _c, links, ...rest } = owner;
+    return {
+      ...rest,
+      links: links.map((link) => {
+        const { clickCount: _x, ...pubLink } = link;
+        return pubLink;
       }),
     };
   }

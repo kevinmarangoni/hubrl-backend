@@ -5,7 +5,7 @@ export type JwtPayload = {
   sub: string;
   email: string;
   name: string;
-  provider: 'local' | 'google';
+  provider: 'local' | 'google' | 'discord';
   iat: number;
   exp: number;
 };

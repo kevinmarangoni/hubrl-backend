@@ -12,7 +12,7 @@ import { CloudinaryService } from '../uploads/cloudinary.service';
 import { AuthProvider } from './dto/auth-provider.enum';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { GoogleLoginDto } from './dto/google-login.dto';
-import { LoginDto } from './dto/login.dto';
+import { DiscordLoginDto } from './dto/discord-login.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User, UserDocument } from './schemas/user.schema';
 
@@ -46,57 +46,66 @@ export class UsersService {
     return this.buildAuthResponse(user, true);
   }
 
-  async login(input: LoginDto) {
-    this.validateLoginPayload(input);
-
-    const normalizedEmail = input.email.toLowerCase().trim();
-    const user = await this.userModel.findOne({ email: normalizedEmail });
-
-    if (!user || user.provider !== AuthProvider.LOCAL) {
-      throw new UnauthorizedException('Email ou senha invalidos');
-    }
-
-    if (!user.password || !this.passwordService.compare(input.password, user.password)) {
-      throw new UnauthorizedException('Email ou senha invalidos');
-    }
-
-    const isFirstLogin = !user.lastLogin;
-    user.lastLogin = new Date();
-    await user.save();
-
-    return this.buildAuthResponse(user, isFirstLogin);
+  async loginWithGoogle(input: GoogleLoginDto) {
+    // Em producao este token deve ser validado na API do Google.
+    this.validateOAuthPayload(input.googleToken, 'googleToken', input.email, input.name);
+    this.assertOAuthTokenPrefix(input.googleToken, 'google', 'Google');
+    return this.upsertOAuthUser(input.email, input.name, AuthProvider.GOOGLE);
   }
 
-  async loginWithGoogle(input: GoogleLoginDto) {
-    this.validateGooglePayload(input);
+  async loginWithDiscord(input: DiscordLoginDto) {
+    // Em producao este token deve ser validado na API do Discord.
+    this.validateOAuthPayload(input.discordToken, 'discordToken', input.email, input.name);
+    this.assertOAuthTokenPrefix(input.discordToken, 'discord', 'Discord');
+    return this.upsertOAuthUser(input.email, input.name, AuthProvider.DISCORD);
+  }
 
-    // Em producao este token deve ser validado na API do Google.
-    if (!input.googleToken.startsWith('google_')) {
-      throw new UnauthorizedException('Token do Google invalido');
-    }
-
-    const normalizedEmail = input.email.toLowerCase().trim();
+  private async upsertOAuthUser(email: string, name: string, provider: AuthProvider) {
+    const normalizedEmail = email.toLowerCase().trim();
     let user = await this.userModel.findOne({ email: normalizedEmail });
     let isFirstLogin = false;
 
     if (!user) {
       isFirstLogin = true;
       user = await this.userModel.create({
-        name: input.name.trim(),
+        name: name.trim(),
         email: normalizedEmail,
-        provider: AuthProvider.GOOGLE,
+        provider,
         lastLogin: new Date(),
       });
     } else {
       isFirstLogin = !user.lastLogin;
-      if (!user.name && input.name.trim()) {
-        user.name = input.name.trim();
+      if (!user.name && name.trim()) {
+        user.name = name.trim();
       }
       user.lastLogin = new Date();
       await user.save();
     }
 
     return this.buildAuthResponse(user, isFirstLogin);
+  }
+
+  private validateOAuthPayload(
+    token: string | undefined,
+    tokenFieldName: 'googleToken' | 'discordToken',
+    email: string | undefined,
+    name: string | undefined,
+  ) {
+    if (!token?.trim()) {
+      throw new BadRequestException(`${tokenFieldName} e obrigatorio`);
+    }
+    if (!this.isValidEmail(email)) {
+      throw new BadRequestException('Email invalido');
+    }
+    if (!name?.trim()) {
+      throw new BadRequestException('Nome e obrigatorio');
+    }
+  }
+
+  private assertOAuthTokenPrefix(token: string, prefix: string, label: string) {
+    if (!token.startsWith(`${prefix}_`)) {
+      throw new UnauthorizedException(`Token do ${label} invalido`);
+    }
   }
 
   async updateProfile(userId: string, input: UpdateUserDto, avatarFile?: Express.Multer.File) {
@@ -190,27 +199,6 @@ export class UsersService {
     }
     if (!input?.password || input.password.length < 6) {
       throw new BadRequestException('Senha deve ter pelo menos 6 caracteres');
-    }
-  }
-
-  private validateLoginPayload(input: LoginDto) {
-    if (!this.isValidEmail(input?.email)) {
-      throw new BadRequestException('Email invalido');
-    }
-    if (!input?.password) {
-      throw new BadRequestException('Senha e obrigatoria');
-    }
-  }
-
-  private validateGooglePayload(input: GoogleLoginDto) {
-    if (!input?.googleToken?.trim()) {
-      throw new BadRequestException('googleToken e obrigatorio');
-    }
-    if (!this.isValidEmail(input?.email)) {
-      throw new BadRequestException('Email invalido');
-    }
-    if (!input?.name?.trim()) {
-      throw new BadRequestException('Nome e obrigatorio');
     }
   }
 
